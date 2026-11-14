@@ -1,0 +1,51 @@
+name: GTX MariaDB 11.8.6 offline QA bundle
+
+on:
+  push:
+    branches:
+      - gtx-mariadb-offline-bundle
+    paths:
+      - .github/workflows/gtx_mariadb_offline_bundle.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bundle:
+    runs-on: ubuntu-24.04
+    container:
+      image: debian:trixie
+    timeout-minutes: 15
+    steps:
+      - name: Obtain exact Debian 13 AMD64 packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(dpkg --print-architecture)" = amd64
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates zip
+          mkdir -p /tmp/gtx-mariadb-debs
+          cd /tmp/gtx-mariadb-debs
+          apt-get download \
+            'mariadb-server-core=1:11.8.6-0+deb13u1' \
+            'mariadb-client-core=1:11.8.6-0+deb13u1' \
+            'libmariadb3=1:11.8.6-0+deb13u1' \
+            'libaio1t64=0.3.113-8+b1' \
+            'liburing2=2.9-1'
+          test "$(find . -maxdepth 1 -type f -name '*.deb' | wc -l)" -eq 5
+          for file in *.deb; do
+            test "$(dpkg-deb -f "$file" Architecture)" = amd64
+            printf '%s %s %s\n' "$(dpkg-deb -f "$file" Package)" "$(dpkg-deb -f "$file" Version)" "$(dpkg-deb -f "$file" Architecture)"
+          done
+          sha256sum ./*.deb > MARIADB_SHA256SUMS_GENERATED.txt
+          printf 'Compare generated hashes to saved official MARIADB_SHA256SUMS before use.\n' > README_VERIFY.txt
+          zip -q -0 /tmp/GTX_MariaDB_11.8.6_Debian13_amd64.zip \
+            ./*.deb MARIADB_SHA256SUMS_GENERATED.txt README_VERIFY.txt
+      - name: Publish one transfer artifact (one day retention)
+        uses: actions/upload-artifact@v4
+        with:
+          name: GTX_MariaDB_11.8.6_Debian13_amd64
+          path: /tmp/GTX_MariaDB_11.8.6_Debian13_amd64.zip
+          if-no-files-found: error
+          retention-days: 1
